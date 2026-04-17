@@ -427,3 +427,76 @@ def get_account_summary(
             "impression_share": m.search_impression_share * 100,
         }
     return {}
+
+
+# ---------------------------------------------------------------------------
+# Mutations
+# ---------------------------------------------------------------------------
+
+def _field_mask(*paths: str):
+    from google.protobuf.field_mask_pb2 import FieldMask
+    return FieldMask(paths=list(paths))
+
+
+def _set_campaign_status(
+    client: GoogleAdsClient, customer_id: str, campaign_id: str, status_name: str
+) -> str:
+    svc = client.get_service("CampaignService")
+    op = client.get_type("CampaignOperation")
+    op.update.resource_name = svc.campaign_path(customer_id, campaign_id)
+    # proto-plus enum: CampaignStatusEnum.PAUSED / ENABLED (no nested class)
+    op.update.status = getattr(client.enums.CampaignStatusEnum, status_name)
+    op.update_mask.CopyFrom(_field_mask("status"))
+    resp = svc.mutate_campaigns(customer_id=customer_id, operations=[op])
+    return resp.results[0].resource_name
+
+
+def pause_campaign(client: GoogleAdsClient, customer_id: str, campaign_id: str) -> str:
+    return _set_campaign_status(client, customer_id, campaign_id, "PAUSED")
+
+
+def enable_campaign(client: GoogleAdsClient, customer_id: str, campaign_id: str) -> str:
+    return _set_campaign_status(client, customer_id, campaign_id, "ENABLED")
+
+
+def set_maximize_conversions(
+    client: GoogleAdsClient, customer_id: str, campaign_id: str
+) -> str:
+    svc = client.get_service("CampaignService")
+    op = client.get_type("CampaignOperation")
+    op.update.resource_name = svc.campaign_path(customer_id, campaign_id)
+    # target_cpa_micros = 0 → no CPA target (unconstrained maximize conversions)
+    # Using a sub-field leaf path avoids the FIELD_HAS_SUBFIELDS API error.
+    op.update.maximize_conversions.target_cpa_micros = 0
+    op.update_mask.CopyFrom(
+        _field_mask("maximize_conversions.target_cpa_micros")
+    )
+    resp = svc.mutate_campaigns(customer_id=customer_id, operations=[op])
+    return resp.results[0].resource_name
+
+
+def add_campaign_negative_keywords(
+    client: GoogleAdsClient,
+    customer_id: str,
+    campaign_id: str,
+    keywords: list[str],
+) -> int:
+    """Add exact-match negative keywords to a campaign. Returns count added."""
+    svc = client.get_service("CampaignCriterionService")
+    campaign_rn = client.get_service("CampaignService").campaign_path(
+        customer_id, campaign_id
+    )
+    # proto-plus enum: KeywordMatchTypeEnum.EXACT (no nested class)
+    exact = client.enums.KeywordMatchTypeEnum.EXACT
+    ops = []
+    for kw in keywords:
+        op = client.get_type("CampaignCriterionOperation")
+        op.create.campaign = campaign_rn
+        op.create.negative = True
+        op.create.keyword.text = kw
+        op.create.keyword.match_type = exact
+        ops.append(op)
+    if not ops:
+        return 0
+    resp = svc.mutate_campaign_criteria(customer_id=customer_id, operations=ops)
+    return len(resp.results)

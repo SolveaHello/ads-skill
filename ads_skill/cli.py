@@ -267,6 +267,152 @@ def export_data(account: str, mcc: str | None, out: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# fix  (apply audit recommendations)
+# ---------------------------------------------------------------------------
+
+# Negatives identified from the 2026-04-17 audit of account 2752299046.
+# Keyed by campaign_id → list of exact-match negative terms.
+_AUDIT_NEGATIVES: dict[str, list[str]] = {
+    "23691220946": [  # Search-shopify-signup
+        "shopify ai",
+        "shopify ai tool",
+        "shopify ai store builder",
+        "ai agent for shopify",
+        "sales order tracker",
+    ],
+    "23691083684": [  # search-medspa-signup
+        "ai receptionist for healthcare",
+        "medical ai receptionist",
+    ],
+    "23695876264": [  # search-homeservice-signup
+        "ai answering service",
+        "ai reception",
+        "ai receptionist for small business",
+        "ai virtual receptionist",
+    ],
+    "23685829377": [  # search-hotel-signup
+        "voice ai for hotels",
+    ],
+}
+
+
+@cli.group("fix")
+def fix_group() -> None:
+    """Apply audit-recommended fixes to the account."""
+
+
+@fix_group.command("preview")
+@click.option("--account", "-a", default="2752299046", show_default=True)
+@click.option("--mcc", default="7153662160", show_default=True)
+def fix_preview(account: str, mcc: str) -> None:
+    """Show exactly what 'fix run' will change — no writes."""
+    from .client import get_client, list_campaigns
+
+    _require_auth()
+    try:
+        client = get_client(mcc)
+        camps = {c["id"]: c for c in list_campaigns(client, account)}
+    except Exception as e:
+        _handle_error(e)
+
+    console.print("\n[bold]Planned changes[/bold] (run [cyan]ads-skill fix run[/cyan] to apply)\n")
+
+    console.print("[red bold]1. PAUSE campaign[/red bold]")
+    c = camps.get("23691083684", {})
+    console.print(f"   search-medspa-signup (ID 23691083684) — currently {c.get('status','?')}, spend $565, 0 conv\n")
+
+    console.print("[yellow bold]2. SWITCH BIDDING → Maximize Conversions[/yellow bold]")
+    for cid, camp in camps.items():
+        console.print(f"   {camp['name']} ({cid}) — {camp['bidding']} → maximize_conversions")
+
+    from rich.markup import escape
+
+    console.print("\n[blue bold]3. ADD NEGATIVE KEYWORDS (exact match)[/blue bold]")
+    total = 0
+    for cid, kws in _AUDIT_NEGATIVES.items():
+        name = camps.get(cid, {}).get("name", cid)
+        console.print(f"   {escape('[' + name + ']')}")
+        for kw in kws:
+            console.print(f"     − {escape('[' + kw + ']')}")
+        total += len(kws)
+    console.print(f"\n   Total: {total} negative keywords\n")
+
+
+@fix_group.command("run")
+@click.option("--account", "-a", default="2752299046", show_default=True)
+@click.option("--mcc", default="7153662160", show_default=True)
+@click.confirmation_option(
+    prompt="\nThis will make live changes to your Google Ads account. Proceed?"
+)
+def fix_run(account: str, mcc: str) -> None:
+    """Apply all audit fixes: pause medspa, switch bidding, add negatives."""
+    from .client import (
+        add_campaign_negative_keywords,
+        get_client,
+        list_campaigns,
+        pause_campaign,
+        set_maximize_conversions,
+    )
+
+    _require_auth()
+    try:
+        client = get_client(mcc)
+        camps = {c["id"]: c for c in list_campaigns(client, account)}
+    except Exception as e:
+        _handle_error(e)
+
+    errors: list[str] = []
+
+    # ── 1. Pause medspa ────────────────────────────────────────────────────
+    console.print("\n[bold]Step 1/3 — Pausing search-medspa-signup...[/bold]")
+    try:
+        pause_campaign(client, account, "23691083684")
+        console.print("  [green]✓ Paused[/green] search-medspa-signup")
+    except Exception as e:
+        msg = f"pause medspa: {e}"
+        console.print(f"  [red]✗ {msg}[/red]")
+        errors.append(msg)
+
+    # ── 2. Switch bidding on all campaigns ─────────────────────────────────
+    console.print("\n[bold]Step 2/3 — Switching bidding to Maximize Conversions...[/bold]")
+    for cid, camp in camps.items():
+        try:
+            set_maximize_conversions(client, account, cid)
+            console.print(f"  [green]✓[/green] {camp['name']} — TARGET_SPEND → maximize_conversions")
+        except Exception as e:
+            msg = f"bidding {camp['name']}: {e}"
+            console.print(f"  [red]✗ {msg}[/red]")
+            errors.append(msg)
+
+    # ── 3. Add negative keywords ───────────────────────────────────────────
+    console.print("\n[bold]Step 3/3 — Adding exact-match negative keywords...[/bold]")
+    for cid, kws in _AUDIT_NEGATIVES.items():
+        name = camps.get(cid, {}).get("name", cid)
+        try:
+            added = add_campaign_negative_keywords(client, account, cid, kws)
+            console.print(f"  [green]✓[/green] {name} — added {added} negatives")
+        except Exception as e:
+            msg = f"negatives {name}: {e}"
+            console.print(f"  [red]✗ {msg}[/red]")
+            errors.append(msg)
+
+    # ── Summary ────────────────────────────────────────────────────────────
+    console.print()
+    if errors:
+        console.print(f"[yellow]Completed with {len(errors)} error(s):[/yellow]")
+        for err in errors:
+            console.print(f"  • {err}")
+    else:
+        console.print("[green bold]✓ All fixes applied successfully.[/green bold]")
+        console.print(
+            "\n[dim]Next steps:[/dim]\n"
+            "  • Wait 1-2 weeks for Maximize Conversions to learn\n"
+            "  • Re-run [cyan]ads-skill export[/cyan] + check GOOGLE-ADS-REPORT.md\n"
+            "  • Fix duplicate conversion actions manually in Google Ads UI"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
