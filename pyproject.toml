@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ads-skill"
+version = "0.1.0"
+description = "Google Ads CLI skill with OAuth2"
+requires-python = ">=3.10"
+dependencies = [
+    "google-ads>=21.0.0",
+    "click>=8.0.0",
+    "rich>=13.0.0",
+]
+
+[project.scripts]
+ads-skill = "ads_skill.cli:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ads_skill*"]
