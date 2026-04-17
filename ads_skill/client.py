@@ -152,6 +152,243 @@ def list_campaigns(client: GoogleAdsClient, customer_id: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Export queries (for audit / claude-ads integration)
+# ---------------------------------------------------------------------------
+
+def export_ad_groups(client: GoogleAdsClient, customer_id: str) -> list[dict]:
+    svc = client.get_service("GoogleAdsService")
+    query = """
+        SELECT
+            ad_group.id,
+            ad_group.name,
+            ad_group.status,
+            ad_group.type,
+            ad_group.cpc_bid_micros,
+            campaign.id,
+            campaign.name,
+            metrics.impressions,
+            metrics.clicks,
+            metrics.cost_micros,
+            metrics.conversions,
+            metrics.ctr,
+            metrics.average_cpc
+        FROM ad_group
+        WHERE segments.date DURING LAST_30_DAYS
+          AND ad_group.status != 'REMOVED'
+        ORDER BY metrics.cost_micros DESC
+        LIMIT 500
+    """
+    resp = svc.search(customer_id=customer_id, query=query)
+    result = []
+    for row in resp:
+        ag, m = row.ad_group, row.metrics
+        result.append({
+            "id": str(ag.id),
+            "name": ag.name,
+            "status": ag.status.name,
+            "type": ag.type_.name,
+            "cpc_bid": ag.cpc_bid_micros / 1_000_000,
+            "campaign_id": str(row.campaign.id),
+            "campaign_name": row.campaign.name,
+            "impressions": m.impressions,
+            "clicks": m.clicks,
+            "cost": m.cost_micros / 1_000_000,
+            "conversions": m.conversions,
+            "ctr": m.ctr * 100,
+            "avg_cpc": m.average_cpc / 1_000_000,
+        })
+    return result
+
+
+def export_keywords(client: GoogleAdsClient, customer_id: str) -> list[dict]:
+    svc = client.get_service("GoogleAdsService")
+    query = """
+        SELECT
+            ad_group_criterion.keyword.text,
+            ad_group_criterion.keyword.match_type,
+            ad_group_criterion.status,
+            ad_group_criterion.quality_info.quality_score,
+            ad_group_criterion.quality_info.creative_quality_score,
+            ad_group_criterion.quality_info.post_click_quality_score,
+            ad_group_criterion.quality_info.search_predicted_ctr,
+            ad_group_criterion.cpc_bid_micros,
+            ad_group.id,
+            ad_group.name,
+            campaign.id,
+            campaign.name,
+            metrics.impressions,
+            metrics.clicks,
+            metrics.cost_micros,
+            metrics.conversions,
+            metrics.ctr,
+            metrics.average_cpc,
+            metrics.search_impression_share
+        FROM keyword_view
+        WHERE segments.date DURING LAST_30_DAYS
+          AND ad_group_criterion.status != 'REMOVED'
+        ORDER BY metrics.cost_micros DESC
+        LIMIT 1000
+    """
+    resp = svc.search(customer_id=customer_id, query=query)
+    result = []
+    for row in resp:
+        kw = row.ad_group_criterion
+        qi = kw.quality_info
+        m = row.metrics
+        result.append({
+            "text": kw.keyword.text,
+            "match_type": kw.keyword.match_type.name,
+            "status": kw.status.name,
+            "quality_score": qi.quality_score,
+            "creative_quality": qi.creative_quality_score.name,
+            "landing_page_quality": qi.post_click_quality_score.name,
+            "expected_ctr": qi.search_predicted_ctr.name,
+            "cpc_bid": kw.cpc_bid_micros / 1_000_000,
+            "ad_group_id": str(row.ad_group.id),
+            "ad_group_name": row.ad_group.name,
+            "campaign_id": str(row.campaign.id),
+            "campaign_name": row.campaign.name,
+            "impressions": m.impressions,
+            "clicks": m.clicks,
+            "cost": m.cost_micros / 1_000_000,
+            "conversions": m.conversions,
+            "ctr": m.ctr * 100,
+            "avg_cpc": m.average_cpc / 1_000_000,
+            "impression_share": m.search_impression_share * 100,
+        })
+    return result
+
+
+def export_ads(client: GoogleAdsClient, customer_id: str) -> list[dict]:
+    svc = client.get_service("GoogleAdsService")
+    query = """
+        SELECT
+            ad_group_ad.ad.id,
+            ad_group_ad.ad.type,
+            ad_group_ad.ad.final_urls,
+            ad_group_ad.ad.responsive_search_ad.headlines,
+            ad_group_ad.ad.responsive_search_ad.descriptions,
+            ad_group_ad.status,
+            ad_group_ad.ad.name,
+            ad_group.id,
+            ad_group.name,
+            campaign.id,
+            campaign.name,
+            metrics.impressions,
+            metrics.clicks,
+            metrics.cost_micros,
+            metrics.conversions,
+            metrics.ctr,
+            metrics.average_cpc
+        FROM ad_group_ad
+        WHERE segments.date DURING LAST_30_DAYS
+          AND ad_group_ad.status != 'REMOVED'
+        ORDER BY metrics.impressions DESC
+        LIMIT 500
+    """
+    resp = svc.search(customer_id=customer_id, query=query)
+    result = []
+    for row in resp:
+        ad = row.ad_group_ad.ad
+        m = row.metrics
+        rsa = ad.responsive_search_ad
+        headlines = [h.text for h in rsa.headlines] if rsa else []
+        descriptions = [d.text for d in rsa.descriptions] if rsa else []
+        result.append({
+            "id": str(ad.id),
+            "type": ad.type_.name,
+            "status": row.ad_group_ad.status.name,
+            "final_urls": list(ad.final_urls),
+            "headlines": headlines,
+            "descriptions": descriptions,
+            "ad_group_id": str(row.ad_group.id),
+            "ad_group_name": row.ad_group.name,
+            "campaign_id": str(row.campaign.id),
+            "campaign_name": row.campaign.name,
+            "impressions": m.impressions,
+            "clicks": m.clicks,
+            "cost": m.cost_micros / 1_000_000,
+            "conversions": m.conversions,
+            "ctr": m.ctr * 100,
+            "avg_cpc": m.average_cpc / 1_000_000,
+        })
+    return result
+
+
+def export_search_terms(client: GoogleAdsClient, customer_id: str) -> list[dict]:
+    svc = client.get_service("GoogleAdsService")
+    query = """
+        SELECT
+            search_term_view.search_term,
+            search_term_view.status,
+            campaign.id,
+            campaign.name,
+            ad_group.id,
+            ad_group.name,
+            metrics.impressions,
+            metrics.clicks,
+            metrics.cost_micros,
+            metrics.conversions,
+            metrics.ctr,
+            metrics.average_cpc
+        FROM search_term_view
+        WHERE segments.date DURING LAST_30_DAYS
+        ORDER BY metrics.cost_micros DESC
+        LIMIT 1000
+    """
+    resp = svc.search(customer_id=customer_id, query=query)
+    result = []
+    for row in resp:
+        st = row.search_term_view
+        m = row.metrics
+        result.append({
+            "search_term": st.search_term,
+            "status": st.status.name,
+            "campaign_id": str(row.campaign.id),
+            "campaign_name": row.campaign.name,
+            "ad_group_id": str(row.ad_group.id),
+            "ad_group_name": row.ad_group.name,
+            "impressions": m.impressions,
+            "clicks": m.clicks,
+            "cost": m.cost_micros / 1_000_000,
+            "conversions": m.conversions,
+            "ctr": m.ctr * 100,
+            "avg_cpc": m.average_cpc / 1_000_000,
+        })
+    return result
+
+
+def export_conversion_actions(client: GoogleAdsClient, customer_id: str) -> list[dict]:
+    svc = client.get_service("GoogleAdsService")
+    query = """
+        SELECT
+            conversion_action.id,
+            conversion_action.name,
+            conversion_action.status,
+            conversion_action.type,
+            conversion_action.category,
+            conversion_action.counting_type,
+            conversion_action.tag_snippets
+        FROM conversion_action
+        WHERE conversion_action.status != 'REMOVED'
+    """
+    resp = svc.search(customer_id=customer_id, query=query)
+    result = []
+    for row in resp:
+        ca = row.conversion_action
+        result.append({
+            "id": str(ca.id),
+            "name": ca.name,
+            "status": ca.status.name,
+            "type": ca.type_.name,
+            "category": ca.category.name,
+            "counting_type": ca.counting_type.name,
+            "has_tag": len(ca.tag_snippets) > 0,
+        })
+    return result
+
+
+# ---------------------------------------------------------------------------
 # Account-level summary
 # ---------------------------------------------------------------------------
 

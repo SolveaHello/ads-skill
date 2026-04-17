@@ -174,6 +174,99 @@ def summary(account: str, days: str, mcc: str | None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# export  (feeds claude-ads audit)
+# ---------------------------------------------------------------------------
+
+
+@cli.command("export")
+@click.option("--account", "-a", required=True, help="Customer ID (digits only).")
+@click.option("--mcc", default=None, help="MCC customer ID if required.")
+@click.option(
+    "--out",
+    "-o",
+    default=None,
+    help="Output JSON file path (default: ./ads_data/<account>_<date>.json).",
+)
+def export_data(account: str, mcc: str | None, out: str | None) -> None:
+    """Export full account data to JSON for Claude audit."""
+    import json
+    from datetime import date
+    from pathlib import Path
+
+    from .client import (
+        export_ad_groups,
+        export_ads,
+        export_conversion_actions,
+        export_keywords,
+        export_search_terms,
+        get_account_summary,
+        get_client,
+        get_customer_info,
+        list_campaigns,
+    )
+
+    _require_auth()
+    try:
+        client = get_client(mcc)
+
+        console.print(f"[cyan]Fetching account info...[/cyan]")
+        info = get_customer_info(client, account) or {}
+
+        console.print(f"[cyan]Fetching campaigns...[/cyan]")
+        campaigns = list_campaigns(client, account)
+
+        console.print(f"[cyan]Fetching ad groups...[/cyan]")
+        ad_groups = export_ad_groups(client, account)
+
+        console.print(f"[cyan]Fetching keywords...[/cyan]")
+        keywords = export_keywords(client, account)
+
+        console.print(f"[cyan]Fetching ads (RSA)...[/cyan]")
+        ads = export_ads(client, account)
+
+        console.print(f"[cyan]Fetching search terms...[/cyan]")
+        search_terms = export_search_terms(client, account)
+
+        console.print(f"[cyan]Fetching conversion actions...[/cyan]")
+        conversions = export_conversion_actions(client, account)
+
+        console.print(f"[cyan]Fetching account summary...[/cyan]")
+        summary = get_account_summary(client, account, 30)
+
+        payload = {
+            "exported_at": date.today().isoformat(),
+            "period": "LAST_30_DAYS",
+            "account": info,
+            "summary": summary,
+            "campaigns": campaigns,
+            "ad_groups": ad_groups,
+            "keywords": keywords,
+            "ads": ads,
+            "search_terms": search_terms,
+            "conversion_actions": conversions,
+        }
+
+        if out:
+            dest = Path(out)
+        else:
+            Path("ads_data").mkdir(exist_ok=True)
+            dest = Path(f"ads_data/{account}_{date.today().strftime('%Y%m%d')}.json")
+
+        dest.write_text(json.dumps(payload, indent=2, ensure_ascii=False))
+        console.print(f"\n[green]✓ Exported to:[/green] {dest}")
+        console.print(
+            f"  campaigns={len(campaigns)}, ad_groups={len(ad_groups)}, "
+            f"keywords={len(keywords)}, ads={len(ads)}, "
+            f"search_terms={len(search_terms)}, conversions={len(conversions)}"
+        )
+        console.print(
+            f"\n[dim]Next step: /ads google — point Claude at {dest} for audit[/dim]"
+        )
+    except Exception as e:
+        _handle_error(e)
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
