@@ -4,9 +4,22 @@
 
 ---
 
+## 初始化配置
+
+**首次使用前，先创建 `.env` 文件：**
+
+```bash
+cp .env.example .env
+# 然后编辑 .env，填入下方三项真实凭证
+```
+
+`.env` 已被 `.gitignore` 屏蔽，不会提交到 git。
+
+---
+
 ## 凭证配置
 
-运行任何命令前，先确认以下三项凭证已配置。凭证存储在 `ads_skill/config.py`，也可通过环境变量覆盖。
+运行任何命令前，先确认 `.env` 中以下三项已填写。也可直接设置同名环境变量。
 
 ### 1. Developer Token
 
@@ -18,11 +31,11 @@
 
 **配置方式：**
 ```bash
-# 方式一：环境变量（优先生效）
-export ADS_DEVELOPER_TOKEN="your-developer-token"
+# 在 .env 中填写（推荐）
+ADS_DEVELOPER_TOKEN=your-developer-token
 
-# 方式二：直接写入 config.py
-# DEVELOPER_TOKEN = "your-developer-token"
+# 或直接设置环境变量
+export ADS_DEVELOPER_TOKEN="your-developer-token"
 ```
 
 > 如果用户未配置 Developer Token，**主动询问**：
@@ -42,11 +55,13 @@ export ADS_DEVELOPER_TOKEN="your-developer-token"
 
 **配置方式：**
 ```bash
-# 环境变量
-export ADS_CLIENT_ID="your-client-id.apps.googleusercontent.com"
-export ADS_CLIENT_SECRET="your-client-secret"
+# 在 .env 中填写（推荐）
+ADS_CLIENT_ID=your-client-id.apps.googleusercontent.com
+ADS_CLIENT_SECRET=GOCSPX-your-client-secret
 
-# 或修改 ads_skill/config.py 中的 CLIENT_ID / CLIENT_SECRET
+# 或直接设置环境变量
+export ADS_CLIENT_ID="your-client-id.apps.googleusercontent.com"
+export ADS_CLIENT_SECRET="GOCSPX-your-client-secret"
 ```
 
 > 如果用户未配置 Client ID 或 Secret，**主动询问**：
